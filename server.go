@@ -65,7 +65,7 @@ var once sync.Once
 
 func SetupRegistryService() {
 	once.Do(func() {
-		go registry.heartbeat(6 * time.Second)
+		go registry.heartbeat(3 * time.Second)
 	})
 }
 
@@ -80,11 +80,13 @@ func (r *registryStr) heartbeat(freq time.Duration) {
 					defer wg.Done()
 					success := true
 					for attampts := 0; attampts < 3; attampts++ {
-						res, err := http.Get(reg.HeartbeatDetectionUrl)
+						client := http.Client{
+							Timeout: 2 * time.Second,
+						}
+						res, err := client.Get(reg.HeartbeatDetectionUrl)
 						if err != nil {
 							fmt.Println(err)
-						}
-						if res.StatusCode == http.StatusOK {
+						} else if res.StatusCode == http.StatusOK {
 							fmt.Println("心跳检测成功")
 							if !success {
 								r.services[reg.ServiceName] = append(r.services[reg.ServiceName], reg)
