@@ -8,35 +8,23 @@ import (
 )
 
 func main() {
-	// 启动服务
-	http.HandleFunc("/log", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Println("接收到log请求")
-		w.WriteHeader(http.StatusOK)
-	})
-	srv := http.Server{}
-	srv.Addr = ":4000"
-
-	go func() {
-		fmt.Println(srv.ListenAndServe())
-	}()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	// 注册服务
 	// 初始化服务注册客户端
-	regClient := registry.InitRegistryClient("")
+	regClient := registry.InitRegistryClient(context.Background(), "", "http://localhost:6000/heartbeat")
 
-	reg := registry.Registration{
-		ServiceName: "Log Service",
-		ServiceUrl:  "http://localhost:5000/log",
-	}
-	err := regClient.RegisterService(reg)
+	reg := registry.InitRegistration("Log Servcie", ":6000", "http://localhost:6000/log", "http://localhost:6000/heartbeat")
+	err := regClient.RegisterService(reg, &log{})
 	if err != nil {
-		fmt.Println("服务注册失败，关闭服务")
-		cancel()
+		fmt.Println("服务注册失败")
 	}
 
-	<-ctx.Done()
 	// 关闭服务逻辑
 	fmt.Println("log服务正在关闭...")
+}
+
+type log struct{}
+
+func (l log) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("接收到log请求")
+	w.WriteHeader(http.StatusOK)
 }

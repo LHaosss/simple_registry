@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sync"
+	"time"
 )
 
 const (
@@ -13,12 +15,22 @@ const (
 	DefaultServiceName = "/services"
 )
 
-var registry map[string][]*Registration
+type registryStr struct {
+	services map[string][]*Registration
+	mut      sync.Mutex
+}
+
+var registry registryStr
 
 // 启动服务
 func StartService(opts *Options) {
 	// 初始化服务存储信息
-	registry = make(map[string][]*Registration)
+	registry = registryStr{
+		services: make(map[string][]*Registration),
+	}
+
+	// 启动心跳检测
+	SetupRegistryService()
 
 	http.Handle(opts.ServiceName, &Registry{})
 
@@ -48,6 +60,69 @@ func StartService(opts *Options) {
 	fmt.Println("Shutting down registry service")
 }
 
+// 心跳检测
+var once sync.Once
+
+func SetupRegistryService() {
+	once.Do(func() {
+		go registry.heartbeat(6 * time.Second)
+	})
+}
+
+func (r *registryStr) heartbeat(freq time.Duration) {
+	for {
+		var wg sync.WaitGroup
+
+		for _, services := range r.services {
+			for _, service := range services {
+				wg.Add(1)
+				go func(reg *Registration) {
+					defer wg.Done()
+					success := true
+					for attampts := 0; attampts < 3; attampts++ {
+						res, err := http.Get(reg.HeartbeatDetectionUrl)
+						if err != nil {
+							fmt.Println(err)
+						}
+						if res.StatusCode == http.StatusOK {
+							fmt.Println("心跳检测成功")
+							if !success {
+								r.services[reg.ServiceName] = append(r.services[reg.ServiceName], reg)
+							}
+							break
+						}
+						fmt.Println("心跳检测失败")
+						if success {
+							success = false
+							r.remove(reg)
+						}
+						time.Sleep(1 * time.Second)
+					}
+				}(service)
+			}
+		}
+		wg.Wait()
+		time.Sleep(freq)
+	}
+}
+
+func (r *registryStr) remove(reg *Registration) {
+	r.mut.Lock()
+	defer r.mut.Unlock()
+
+	// 查找服务
+	_, ok := r.services[reg.ServiceName]
+	if !ok {
+		return
+	}
+
+	for i, service := range r.services[reg.ServiceName] {
+		if service.ServiceUrl == reg.ServiceUrl {
+			r.services[reg.ServiceName] = append(r.services[reg.ServiceName][:i], r.services[reg.ServiceName][i+1:]...)
+		}
+	}
+}
+
 // 服务注册服务端
 type Registry struct{}
 
@@ -63,22 +138,28 @@ func (r *Registry) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			w.WriteHeader(http.StatusBadRequest)
 		}
 		// 存储服务信息
-		if _, ok := registry[registration.ServiceName]; !ok {
-			registry[registration.ServiceName] = make([]*Registration, 0)
+		registry.mut.Lock()
+		if _, ok := registry.services[registration.ServiceName]; !ok {
+			registry.services[registration.ServiceName] = make([]*Registration, 0)
 		}
-		for i, reg := range registry[registration.ServiceName] {
+		for i, reg := range registry.services[registration.ServiceName] {
 			if reg.ServiceUrl == registration.ServiceUrl {
-				registry[registration.ServiceName] = append(registry[registration.ServiceName][:i], registry[registration.ServiceName][i+1:]...)
+				registry.services[registration.ServiceName] = append(registry.services[registration.ServiceName][:i], registry.services[registration.ServiceName][i+1:]...)
 			}
 		}
-		registry[registration.ServiceName] = append(registry[registration.ServiceName], &registration)
+		registry.services[registration.ServiceName] = append(registry.services[registration.ServiceName], &registration)
+		registry.mut.Unlock()
+
 		w.WriteHeader(http.StatusOK)
 		return
 	case http.MethodGet:
-		// 返回所有数据
+		registry.mut.Lock()
+		defer registry.mut.Unlock()
+
+		// 返回registry.services中所有数据
 		buf := new(bytes.Buffer)
 		enc := json.NewEncoder(buf)
-		err := enc.Encode(registry)
+		err := enc.Encode(registry.services)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 		}
