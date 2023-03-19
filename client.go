@@ -47,5 +47,12 @@ func (client *RegistryClient) RegisterService(reg Registration) error {
 		return err
 	}
 	fmt.Println("服务注册成功")
+
+	return nil
+}
+
+// 注销服务
+func (client *Registration) DeregisterService(reg Registration) error {
+
 	return nil
 }

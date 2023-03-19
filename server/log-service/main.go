@@ -28,7 +28,7 @@ func main() {
 
 	reg := registry.Registration{
 		ServiceName: "Log Service",
-		ServiceUrl:  "http://localhost:4000/log",
+		ServiceUrl:  "http://localhost:5000/log",
 	}
 	err := regClient.RegisterService(reg)
 	if err != nil {

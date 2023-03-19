@@ -1,19 +1,25 @@
 package simple_registry
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 )
 
-var (
+const (
 	DefaultPort        = ":3000"
 	DefaultServiceName = "/services"
 )
 
+var registry map[string][]*Registration
+
 // 启动服务
 func StartService(opts *Options) {
+	// 初始化服务存储信息
+	registry = make(map[string][]*Registration)
+
 	http.Handle(opts.ServiceName, &Registry{})
 
 	var srv http.Server
@@ -56,7 +62,27 @@ func (r *Registry) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
 		}
-		fmt.Println(registration)
+		// 存储服务信息
+		if _, ok := registry[registration.ServiceName]; !ok {
+			registry[registration.ServiceName] = make([]*Registration, 0)
+		}
+		for i, reg := range registry[registration.ServiceName] {
+			if reg.ServiceUrl == registration.ServiceUrl {
+				registry[registration.ServiceName] = append(registry[registration.ServiceName][:i], registry[registration.ServiceName][i+1:]...)
+			}
+		}
+		registry[registration.ServiceName] = append(registry[registration.ServiceName], &registration)
+		w.WriteHeader(http.StatusOK)
+		return
+	case http.MethodGet:
+		// 返回所有数据
+		buf := new(bytes.Buffer)
+		enc := json.NewEncoder(buf)
+		err := enc.Encode(registry)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+		w.Write(buf.Bytes())
 		w.WriteHeader(http.StatusOK)
 		return
 	default:
