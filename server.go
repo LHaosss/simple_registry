@@ -165,15 +165,19 @@ func sendUpdate(addNames, removeNames []string, updateUrl string) {
 	err := encoder.Encode(update)
 	if err != nil {
 		fmt.Println("更新服务编码失败")
+		return
 	}
 
 	resp, err := http.Post(updateUrl, "application/json", buf)
 	if err != nil {
 		fmt.Printf("请求出错 %v\n", err)
+		return
 	}
 	if resp.StatusCode != http.StatusOK {
-		fmt.Println("更新服务出错")
+		fmt.Println("服务更新请求出错")
+		return
 	}
+	fmt.Println("服务更新请求发送成功")
 
 }
 

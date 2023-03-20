@@ -27,6 +27,6 @@ func main() {
 type log struct{}
 
 func (l log) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	fmt.Println("接收到log请求")
+	fmt.Println("接收到function请求")
 	w.WriteHeader(http.StatusOK)
 }

@@ -178,7 +178,7 @@ func (u update) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	}
 	for key, value := range provider.services {
-		fmt.Println(key, value)
+		fmt.Println("lllll", key, value)
 	}
 
 	w.WriteHeader(http.StatusOK)
