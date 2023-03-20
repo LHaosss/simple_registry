@@ -8,11 +8,9 @@ type Registration struct {
 
 	HeartbeatDetectionUrl string
 	UpdateUrl             string
-
-	DependedServices []*Patch
 }
 
-func InitRegistration(serviceName, servicePort, serviceUrl, heartbeatDetectionUrl, updateUrl string, dependedServices []*Patch) Registration {
+func InitRegistration(serviceName, servicePort, serviceUrl, heartbeatDetectionUrl, updateUrl string) Registration {
 	return Registration{
 		ServiceName: serviceName,
 		ServicePort: servicePort,
@@ -20,27 +18,5 @@ func InitRegistration(serviceName, servicePort, serviceUrl, heartbeatDetectionUr
 		ServiceUrl:            serviceUrl,
 		HeartbeatDetectionUrl: heartbeatDetectionUrl,
 		UpdateUrl:             updateUrl,
-		DependedServices:      dependedServices,
 	}
-}
-
-type Patch struct {
-	ServiceName string
-	ServiceUrl  string
-}
-
-func InitDependedService(serviceNames []string) []*Patch {
-	services := make([]*Patch, 0)
-	for _, name := range serviceNames {
-		services = append(services, &Patch{
-			ServiceName: name,
-		})
-	}
-
-	return services
-}
-
-type Update struct {
-	Add    []*Patch
-	Remove []*Patch
 }
