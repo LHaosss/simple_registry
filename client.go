@@ -8,26 +8,42 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 )
 
 const DefaultServiceURL = "http://localhost:3000/services"
+
+type providerStr struct {
+	mut      sync.Mutex
+	services map[string][]*Patch
+}
+
+var provider providerStr = providerStr{
+	services: make(map[string][]*Patch, 0),
+}
 
 // 服务注册客户端
 
 type RegistryClient struct {
 	ServiceURL            string
 	HeartbeatDetectionApi string
+	UpdateApi             string
 	HeartbeatDetection    heartbeatDetection
+	Update                update
 
 	Ctx context.Context
 }
 
-func InitRegistryClient(ctx context.Context, serviceURL string, heartbeatDetectionApi string) *RegistryClient {
+func InitRegistryClient(ctx context.Context, serviceURL string, heartbeatDetectionApi, updateApi string) *RegistryClient {
 	regClient := &RegistryClient{
 		ServiceURL:            DefaultServiceURL,
 		HeartbeatDetectionApi: heartbeatDetectionApi,
 		HeartbeatDetection:    heartbeatDetection{},
-		Ctx:                   ctx,
+
+		UpdateApi: updateApi,
+		Update:    update{},
+
+		Ctx: ctx,
 	}
 	if serviceURL == "" {
 		regClient.ServiceURL = DefaultServiceURL
@@ -45,6 +61,9 @@ func (client *RegistryClient) RegisterService(reg Registration, handler http.Han
 
 	// 提供心跳检测向服务端服务
 	http.Handle("/heartbeat", client.HeartbeatDetection)
+
+	// 提供依赖更新接口
+	http.Handle("/update", client.Update)
 
 	// 启动服务
 	var srv http.Server
@@ -80,9 +99,21 @@ func (client *RegistryClient) RegisterService(reg Registration, handler http.Han
 }
 
 // 注销服务
-func (client *Registration) DeregisterService(reg Registration) error {
+func (client *RegistryClient) DeregisterService(reg Registration) error {
 
 	return nil
+}
+
+// 获取依赖信息
+func (client *RegistryClient) GetDependedServicesByName(serviceName string) ([]*Patch, error) {
+	services := make([]*Patch, 0)
+	if srvs, ok := provider.services[serviceName]; ok {
+		services = append(services, srvs...)
+		return services, nil
+	} else {
+		return nil, errors.New("未找到可用依赖服务")
+	}
+
 }
 
 // 心跳检测
@@ -98,4 +129,57 @@ func (h heartbeatDetection) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
+}
+
+type update struct{}
+
+func (u update) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("接收到依赖更新请求")
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	provider.mut.Lock()
+	defer provider.mut.Unlock()
+	// 处理依赖更新
+	decoder := json.NewDecoder(r.Body)
+	var update Update
+	err := decoder.Decode(&update)
+	if err != nil {
+		fmt.Println("更新依赖失败")
+		return
+	}
+	// 增添依赖
+	for _, srv := range update.Add {
+		services, ok := provider.services[srv.ServiceName]
+		if !ok {
+			provider.services[srv.ServiceName] = make([]*Patch, 0)
+		}
+		for index, service := range services {
+			if service.ServiceUrl == srv.ServiceUrl {
+				provider.services[srv.ServiceName] = append(provider.services[srv.ServiceName][:index], provider.services[srv.ServiceName][index+1:]...)
+			}
+		}
+		provider.services[srv.ServiceName] = append(provider.services[srv.ServiceName], srv)
+	}
+
+	// 删除依赖
+	for _, srv := range update.Remove {
+		if services, ok := provider.services[srv.ServiceName]; !ok {
+			continue
+		} else {
+			for index, service := range services {
+				if srv.ServiceUrl == service.ServiceName {
+					provider.services[srv.ServiceName] = append(provider.services[srv.ServiceName][:index], provider.services[srv.ServiceName][index+1:]...)
+					break
+				}
+			}
+		}
+
+	}
+	for key, value := range provider.services {
+		fmt.Println(key, value)
+	}
+
+	w.WriteHeader(http.StatusOK)
 }

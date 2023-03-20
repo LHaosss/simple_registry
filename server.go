@@ -125,6 +125,58 @@ func (r *registryStr) remove(reg *Registration) {
 	}
 }
 
+func sendUpdate(addNames, removeNames []string, updateUrl string) {
+	fmt.Println("开始执行依赖处理")
+	update := Update{
+		Add:    make([]*Patch, 0),
+		Remove: make([]*Patch, 0),
+	}
+
+	for _, name := range addNames {
+		if services, ok := registry.services[name]; ok {
+			patchs := make([]*Patch, 0)
+			for _, service := range services {
+				patchs = append(patchs, &Patch{
+					ServiceName: service.ServiceName,
+					ServiceUrl:  service.ServiceUrl,
+				})
+
+			}
+			update.Add = append(update.Add, patchs...)
+		}
+	}
+
+	for _, name := range removeNames {
+		if services, ok := registry.services[name]; ok {
+			patchs := make([]*Patch, 0)
+			for _, service := range services {
+				patchs = append(patchs, &Patch{
+					ServiceName: service.ServiceName,
+					ServiceUrl:  service.ServiceUrl,
+				})
+
+			}
+			update.Remove = append(update.Add, patchs...)
+		}
+	}
+
+	buf := new(bytes.Buffer)
+	encoder := json.NewEncoder(buf)
+	err := encoder.Encode(update)
+	if err != nil {
+		fmt.Println("更新服务编码失败")
+	}
+
+	resp, err := http.Post(updateUrl, "application/json", buf)
+	if err != nil {
+		fmt.Printf("请求出错 %v\n", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		fmt.Println("更新服务出错")
+	}
+
+}
+
 // 服务注册服务端
 type Registry struct{}
 
@@ -151,6 +203,14 @@ func (r *Registry) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		}
 		registry.services[registration.ServiceName] = append(registry.services[registration.ServiceName], &registration)
 		registry.mut.Unlock()
+
+		// 发送依赖信息
+		add := make([]string, 0)
+		for _, patch := range registration.DependedServices {
+			add = append(add, patch.ServiceName)
+		}
+
+		sendUpdate(add, []string{}, registration.UpdateUrl)
 
 		w.WriteHeader(http.StatusOK)
 		return
