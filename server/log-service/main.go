@@ -10,13 +10,18 @@ import (
 func main() {
 	// 注册服务
 	// 初始化服务注册客户端
-	regClient := registry.InitRegistryClient(context.Background(), "", "http://localhost:4000/heartbeat")
+	regClient := registry.InitRegistryClient(context.Background(), "", log{})
 
-	reg := registry.InitRegistration("Log Service", ":4000", "http://localhost:4000/log", "http://localhost:4000/heartbeat", "http://localhost:4000/update")
-	err := regClient.RegisterService(reg, &log{})
+	reg := registry.InitRegistration("Log Service", ":4000", "http://localhost:4000/log", []string{""})
+
+	err := regClient.Register(reg)
 	if err != nil {
 		fmt.Println("服务注册失败")
 	}
+
+	srv := regClient.Start("/log", ":4000")
+
+	fmt.Println(srv.ListenAndServe())
 
 	// 关闭服务逻辑
 	fmt.Println("log服务正在关闭...")

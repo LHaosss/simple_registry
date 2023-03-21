@@ -138,6 +138,7 @@ func (r *Registry) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		err := decoder.Decode(&registration)
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
+			return
 		}
 		// 存储服务信息
 		registry.mut.Lock()
@@ -151,6 +152,15 @@ func (r *Registry) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		}
 		registry.services[registration.ServiceName] = append(registry.services[registration.ServiceName], &registration)
 		registry.mut.Unlock()
+
+		fmt.Println(registry.services)
+
+		// 发送可用依赖信息
+		err = registry.sendAdd(registration)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
 
 		w.WriteHeader(http.StatusOK)
 		return
@@ -172,4 +182,38 @@ func (r *Registry) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
+}
+func (registry *registryStr) sendAdd(reg Registration) error {
+	fmt.Println("开始更新依赖")
+	fmt.Println(reg.UpdateUrl)
+	// 发送可用依赖信息
+	update := UpdateInfo{
+		Add:    make([]*Registration, 0),
+		Remove: make([]*Registration, 0),
+	}
+
+	for serviceName, services := range registry.services {
+		for _, name := range reg.DependedServicesName {
+			if name == serviceName {
+				update.Add = append(update.Add, services...)
+			}
+		}
+	}
+
+	buf := new(bytes.Buffer)
+	encoder := json.NewEncoder(buf)
+	err := encoder.Encode(update)
+	if err != nil {
+		fmt.Printf("编码失败, err: %v", err)
+		return err
+	}
+
+	http.Post(reg.UpdateUrl, "application/json", buf)
+
+	return nil
+}
+
+type UpdateInfo struct {
+	Add    []*Registration
+	Remove []*Registration
 }

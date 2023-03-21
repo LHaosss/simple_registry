@@ -7,90 +7,90 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 )
 
 const DefaultServiceURL = "http://localhost:3000/services"
 
-// 服务注册客户端
-
 type RegistryClient struct {
-	ServiceURL            string
-	HeartbeatDetectionApi string
-	UpdateApi             string
-	HeartbeatDetection    heartbeatDetection
+	RegistryUrl string
+
+	HeartbeatService heartbeatService
+	UpdateService    updateService
+
+	Service http.Handler
 
 	Ctx context.Context
 }
 
-func InitRegistryClient(ctx context.Context, serviceURL string, heartbeatDetectionApi string) *RegistryClient {
-	regClient := &RegistryClient{
-		ServiceURL:            DefaultServiceURL,
-		HeartbeatDetectionApi: heartbeatDetectionApi,
-		HeartbeatDetection:    heartbeatDetection{},
+// 初始化RegistryClient
+func InitRegistryClient(ctx context.Context, registryUrl string, service http.Handler) *RegistryClient {
+	client := &RegistryClient{
+		RegistryUrl:      registryUrl,
+		HeartbeatService: heartbeatService{},
+		UpdateService:    updateService{},
+
+		Service: service,
 
 		Ctx: ctx,
 	}
-	if serviceURL == "" {
-		regClient.ServiceURL = DefaultServiceURL
+	if client.RegistryUrl == "" {
+		client.RegistryUrl = "http://localhost:3000/services"
 	}
-	return regClient
+
+	return client
+}
+
+// 启动服务
+func (client *RegistryClient) Start(servicePath, addr string) http.Server {
+	// 注册心跳服务
+	http.Handle("/heartbeat", client.HeartbeatService)
+	// 注册依赖更新服务
+	http.Handle("/update", client.UpdateService)
+
+	// 注册服务
+	http.Handle(servicePath, client.Service)
+
+	var srv http.Server
+	srv.Addr = addr
+
+	return srv
 }
 
 // 注册服务
-func (client *RegistryClient) RegisterService(reg Registration, handler http.Handler) error {
-	ctx, cancel := context.WithCancel(client.Ctx)
-	defer cancel()
-
-	// 注册服务
-	http.Handle(strings.Split(reg.ServiceUrl, "/")[len(strings.Split(reg.ServiceUrl, "/"))-1], handler)
-
-	// 提供心跳检测向服务端服务
-	http.Handle("/heartbeat", client.HeartbeatDetection)
-
-	// 启动服务
-	var srv http.Server
-	srv.Addr = reg.ServicePort
-
-	go func() {
-		fmt.Println(srv.ListenAndServe())
-		cancel()
-	}()
-
-	// 向服务端发送注册服务注册请求
+func (client *RegistryClient) Register(reg Registration) error {
+	// 向注册中心发送服务注册请求
 	buf := new(bytes.Buffer)
-	encoder := json.NewEncoder(buf)
-	err := encoder.Encode(reg)
-	if err != nil {
-		return err
-	}
-	// 向服务注册服务端发送注册请求
-	resp, err := http.Post(client.ServiceURL, "application/json", buf)
-	if err != nil {
-		fmt.Printf("服务注册请求发送失败, %v\n", err)
-		return err
-	}
-	if resp.StatusCode != http.StatusOK {
-		err = errors.New("服务请求出错")
+	enc := json.NewEncoder(buf)
+	if err := enc.Encode(reg); err != nil {
+		fmt.Printf("编码错误，err: %v\n", err)
 		return err
 	}
 
-	fmt.Println("服务注册成功")
-	<-ctx.Done()
+	// 发送请求
+	resp, err := http.Post(client.RegistryUrl, "application/json", buf)
+	if err != nil {
+		fmt.Println("服务注册请求发送失败")
+		return err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		fmt.Println("服务注册失败")
+		return errors.New("服务注册失败")
+	}
 
 	return nil
 }
 
 // 注销服务
-func (client *RegistryClient) DeregisterService(reg Registration) error {
+func (client *RegistryClient) Deregister(reg Registration) error {
 
 	return nil
 }
 
-// 心跳检测
-type heartbeatDetection struct{}
+// 默认心跳检测服务
+type heartbeatService struct{}
 
-func (h heartbeatDetection) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (h heartbeatService) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		fmt.Println("接受到心跳检测请求")
@@ -100,4 +100,26 @@ func (h heartbeatDetection) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
+}
+
+// 定义默认依赖更新服务
+type updateService struct{}
+
+func (u updateService) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("接收到依赖更新请求")
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
+
+	var update *UpdateInfo
+	decoder := json.NewDecoder(r.Body)
+	err := decoder.Decode(update)
+	if err != nil {
+		fmt.Println("编码失败")
+		w.WriteHeader(http.StatusBadRequest)
+	}
+
+	fmt.Println(update)
+
+	w.WriteHeader(http.StatusOK)
 }
