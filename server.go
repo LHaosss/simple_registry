@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -156,7 +158,7 @@ func (r *Registry) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		fmt.Println(registry.services)
 
 		// 发送可用依赖信息
-		err = registry.sendAdd(registration)
+		go registry.sendAdd(registration)
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
 			return
@@ -183,37 +185,50 @@ func (r *Registry) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 }
+
 func (registry *registryStr) sendAdd(reg Registration) error {
 	fmt.Println("开始更新依赖")
 	fmt.Println(reg.UpdateUrl)
 	// 发送可用依赖信息
 	update := UpdateInfo{
-		Add:    make([]*Registration, 0),
-		Remove: make([]*Registration, 0),
+		Add:    make([]Registration, 0),
+		Remove: make([]Registration, 0),
 	}
 
 	for serviceName, services := range registry.services {
 		for _, name := range reg.DependedServicesName {
 			if name == serviceName {
-				update.Add = append(update.Add, services...)
+				for _, service := range services {
+					update.Add = append(update.Add, *service)
+					fmt.Println(name)
+				}
 			}
 		}
 	}
 
 	buf := new(bytes.Buffer)
-	encoder := json.NewEncoder(buf)
-	err := encoder.Encode(update)
+	enc := json.NewEncoder(buf)
+	err := enc.Encode(update)
 	if err != nil {
 		fmt.Printf("编码失败, err: %v", err)
 		return err
 	}
 
-	http.Post(reg.UpdateUrl, "application/json", buf)
+	resp, err := http.Post(reg.UpdateUrl, "application/json", buf)
+	if err != nil {
+		fmt.Printf("发送更新依赖失败, %v\n", err)
+		return err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		fmt.Println("依赖更新错误")
+		return errors.New("依赖更新出错, statusCode:" + strconv.Itoa(resp.StatusCode))
+	}
 
 	return nil
 }
 
 type UpdateInfo struct {
-	Add    []*Registration
-	Remove []*Registration
+	Add    []Registration
+	Remove []Registration
 }

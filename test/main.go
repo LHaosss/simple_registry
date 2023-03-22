@@ -1,15 +1,17 @@
 package main
 
-import "fmt"
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"net/http"
+)
 
 func main() {
-	for i := 0; i < 5; i++ {
-		for j := 0; j < 4; j++ {
-			if j == 2 {
-				break
-			}
-			fmt.Print(j)
-		}
-		fmt.Println()
-	}
+	buf := new(bytes.Buffer)
+	enc := json.NewEncoder(buf)
+	enc.Encode("ssss")
+	resp, err := http.Post("http://localhost:4000/update", "application/json", buf)
+	fmt.Println(err)
+	fmt.Println(resp)
 }

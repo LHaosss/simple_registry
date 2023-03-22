@@ -42,10 +42,10 @@ func InitRegistryClient(ctx context.Context, registryUrl string, service http.Ha
 
 // 启动服务
 func (client *RegistryClient) Start(servicePath, addr string) http.Server {
-	// 注册心跳服务
-	http.Handle("/heartbeat", client.HeartbeatService)
 	// 注册依赖更新服务
 	http.Handle("/update", client.UpdateService)
+	// 注册心跳服务
+	http.Handle("/heartbeat", client.HeartbeatService)
 
 	// 注册服务
 	http.Handle(servicePath, client.Service)
@@ -97,6 +97,7 @@ func (h heartbeatService) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		return
 	default:
+		fmt.Println("ssss")
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
@@ -111,15 +112,15 @@ func (u updateService) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
 
-	var update *UpdateInfo
+	var update UpdateInfo
 	decoder := json.NewDecoder(r.Body)
-	err := decoder.Decode(update)
+	err := decoder.Decode(&update)
 	if err != nil {
 		fmt.Println("编码失败")
 		w.WriteHeader(http.StatusBadRequest)
 	}
 
-	fmt.Println(update)
+	fmt.Println(update.Add)
 
 	w.WriteHeader(http.StatusOK)
 }
