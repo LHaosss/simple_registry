@@ -165,10 +165,37 @@ func (r *Registry) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 		// 发送可用依赖信息
 		go registry.sendAdd(registration)
-		if err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
+
+		// 向所有需要依赖该注册服务的服务发送依赖更新
+
+		go func() {
+			update := UpdateInfo{
+				Add: []Registration{registration},
+			}
+
+			p, err := json.Marshal(update)
+			if err != nil {
+				fmt.Println("依赖更新内容编码失败")
+			}
+
+			for _, services := range registry.services {
+				for _, service := range services {
+					for _, name := range service.DependedServicesName {
+						if name == registration.ServiceName {
+							go func() {
+								resp, err := http.Post(service.UpdateUrl, "application/json", bytes.NewBuffer(p))
+								if err != nil {
+									fmt.Printf("移除依赖失败，service: %s\n", name)
+								}
+								if resp.StatusCode != http.StatusOK {
+									fmt.Println("依赖更新处理失败")
+								}
+							}()
+						}
+					}
+				}
+			}
+		}()
 
 		w.WriteHeader(http.StatusOK)
 		return
@@ -197,8 +224,7 @@ func (registry *registryStr) sendAdd(reg Registration) error {
 	fmt.Println(reg.UpdateUrl)
 	// 发送可用依赖信息
 	update := UpdateInfo{
-		Add:    make([]Registration, 0),
-		Remove: make([]Registration, 0),
+		Add: make([]Registration, 0),
 	}
 
 	for serviceName, services := range registry.services {
@@ -215,6 +241,7 @@ func (registry *registryStr) sendAdd(reg Registration) error {
 	buf := new(bytes.Buffer)
 	enc := json.NewEncoder(buf)
 	err := enc.Encode(update)
+
 	if err != nil {
 		fmt.Printf("编码失败, err: %v", err)
 		return err
@@ -237,7 +264,11 @@ func (registry *registryStr) sendAdd(reg Registration) error {
 func (registry *registryStr) sendRemove(reg Registration) {
 	var wg sync.WaitGroup
 
-	update := UpdateInfo{}
+	update := UpdateInfo{
+		Remove: make([]Registration, 0),
+	}
+	update.Remove = append(update.Remove, reg)
+
 	p, err := json.Marshal(update)
 	if err != nil {
 		fmt.Println("更新移除的依赖失败，json序列化失败")

@@ -1,17 +1,9 @@
 package main
 
-import (
-	"bytes"
-	"encoding/json"
-	"fmt"
-	"net/http"
-)
+import "fmt"
 
 func main() {
-	buf := new(bytes.Buffer)
-	enc := json.NewEncoder(buf)
-	enc.Encode("ssss")
-	resp, err := http.Post("http://localhost:4000/update", "application/json", buf)
-	fmt.Println(err)
-	fmt.Println(resp)
+	a := []int{1, 2, 3, 4, 5, 6}
+	a = append(a[:3], a[4:]...)
+	fmt.Println(a)
 }

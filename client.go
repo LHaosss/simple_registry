@@ -7,9 +7,17 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sync"
 )
 
 const DefaultServiceURL = "http://localhost:3000/services"
+
+type Dependence struct {
+	mut      sync.Mutex
+	Services map[string][]Registration
+}
+
+var dependence *Dependence
 
 type RegistryClient struct {
 	RegistryUrl string
@@ -42,6 +50,9 @@ func InitRegistryClient(ctx context.Context, registryUrl string, service http.Ha
 
 // 启动服务
 func (client *RegistryClient) Start(servicePath, addr string) http.Server {
+	dependence = &Dependence{
+		Services: make(map[string][]Registration),
+	}
 	// 注册依赖更新服务
 	http.Handle("/update", client.UpdateService)
 	// 注册心跳服务
@@ -107,7 +118,6 @@ func (h heartbeatService) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 type updateService struct{}
 
 func (u updateService) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	fmt.Println("接收到依赖更新请求")
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
@@ -120,7 +130,43 @@ func (u updateService) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 	}
 
-	fmt.Println(update.Add)
+	dependence.mut.Lock()
+	defer dependence.mut.Unlock()
+	if len(update.Add) > 0 {
+		fmt.Println("Update!!!!")
+		for _, add := range update.Add {
+			if services, ok := dependence.Services[add.ServiceName]; ok {
+				success := true
+				for _, service := range services {
+					if add.ServiceUrl == service.ServiceUrl {
+						success = false
+						break
+					}
+				}
+				if success {
+					dependence.Services[add.ServiceName] = append(dependence.Services[add.ServiceName], add)
+				}
+			} else {
+				dependence.Services[add.ServiceName] = []Registration{add}
+			}
+		}
+	}
+
+	if len(update.Remove) > 0 {
+		fmt.Println("Remove!!!!")
+		for _, remove := range update.Remove {
+			if services, ok := dependence.Services[remove.ServiceName]; ok {
+				for index, service := range services {
+					if service.ServiceUrl == remove.ServiceUrl {
+						dependence.Services[remove.ServiceName] = append(services[:index], services[index+1:]...)
+						break
+					}
+				}
+			}
+		}
+	}
+
+	fmt.Println(dependence.Services)
 
 	w.WriteHeader(http.StatusOK)
 }
