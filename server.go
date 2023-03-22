@@ -91,6 +91,8 @@ func (r *registryStr) heartbeat(freq time.Duration) {
 						} else if res.StatusCode == http.StatusOK {
 							fmt.Println("心跳检测成功")
 							if !success {
+								// 把依赖添加回来
+								success = true
 								r.services[reg.ServiceName] = append(r.services[reg.ServiceName], reg)
 							}
 							break
@@ -101,6 +103,10 @@ func (r *registryStr) heartbeat(freq time.Duration) {
 							r.remove(reg)
 						}
 						time.Sleep(1 * time.Second)
+					}
+					if !success {
+						// 通知所有依赖该服务的服务，移除该依赖
+						r.sendRemove(*reg)
 					}
 				}(service)
 			}
@@ -226,6 +232,39 @@ func (registry *registryStr) sendAdd(reg Registration) error {
 	}
 
 	return nil
+}
+
+func (registry *registryStr) sendRemove(reg Registration) {
+	var wg sync.WaitGroup
+
+	update := UpdateInfo{}
+	p, err := json.Marshal(update)
+	if err != nil {
+		fmt.Println("更新移除的依赖失败，json序列化失败")
+		return
+	}
+
+	for _, services := range registry.services {
+		for _, service := range services {
+			for _, name := range service.DependedServicesName {
+				if name == reg.ServiceName {
+					wg.Add(1)
+					go func() {
+						resp, err := http.Post(service.UpdateUrl, "application/json", bytes.NewBuffer(p))
+						if err != nil {
+							fmt.Printf("移除依赖失败，service: %s\n", name)
+						}
+						if resp.StatusCode != http.StatusOK {
+							fmt.Println("依赖更新处理失败")
+						}
+						wg.Done()
+					}()
+				}
+			}
+		}
+	}
+
+	wg.Wait()
 }
 
 type UpdateInfo struct {
